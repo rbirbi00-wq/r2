@@ -1,0 +1,2042 @@
+<!DOCTYPE html>
+<html lang="de" dir="ltr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ALAHMAD Logistik ERP - powered by AI</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        /* 3. Zurück zur "Inter" Schriftart für einen sauberen Look */
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700;800&display=swap');
+        body { font-family: 'Inter', sans-serif; background-color: #f4f7f9; }
+        .sidebar { transition: transform 0.3s ease-in-out; }
+        
+        /* 4. Modernes "KI-Look" Sidebar Styling */
+        .sidebar-bg {
+            background: linear-gradient(180deg, #1f2937 0%, #111827 100%); /* gray-800 zu gray-900 */
+        }
+        .sidebar-item { 
+            transition: background-color 0.2s, color 0.2s; 
+            color: #d1d5db; /* gray-300 */
+        }
+        .sidebar-item:hover { 
+            background-color: #374151; /* gray-700 */
+            color: white;
+        }
+        .sidebar-item.active { 
+            background-color: #2563eb; /* blue-600 */
+            color: white; 
+            font-weight: 600;
+        }
+
+        .card { background-color: white; border-radius: 10px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.06); }
+        .input-style { border: 1px solid #d1d5db; padding: 10px; border-radius: 6px; transition: border-color 0.2s; }
+        .input-style:focus { border-color: #3b82f6; outline: none; box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2); }
+        .btn-primary { background-color: #1e40af; color: white; padding: 10px 20px; border-radius: 6px; font-weight: 600; transition: background-color 0.2s; }
+        .btn-primary:hover { background-color: #1d4ed8; }
+        .badge-success { background-color: #d1fae5; color: #065f46; }
+        .badge-danger { background-color: #fee2e2; color: #991b1b; }
+        .signature-pad { border: 2px dashed #ccc; border-radius: 8px; cursor: crosshair; }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+        /* 5. Modernes Dashboard-Karten Styling */
+        .dashboard-card {
+            background: linear-gradient(145deg, #ffffff 0%, #f9fafb 100%);
+            border: 1px solid #e5e7eb;
+            transition: all 0.2s ease-in-out;
+            border-radius: 12px;
+        }
+        .dashboard-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 16px rgba(0,0,0,0.05);
+        }
+        
+        /* 6. Hilfsklasse für text-nowrap */
+        .text-nowrap { white-space: nowrap; }
+    </style>
+    
+    <script type="module">
+        // ----------------------------------------------------------------------
+        // 1. Firebase Imports & Initialisierung
+        // ----------------------------------------------------------------------
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        // Zurück zum anonymen Login
+        import { 
+            getAuth, 
+            onAuthStateChanged, 
+            signInAnonymously, 
+            signInWithCustomToken 
+        } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { 
+            getFirestore, doc, setDoc, collection, query, onSnapshot, 
+            updateDoc, arrayUnion, deleteDoc, getDocs, addDoc, getDoc
+        } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        
+        let db, auth;
+        let userId; 
+        let isAuthReady = false;
+
+        // --- HINWEIS: Ersetze dies mit deinen echten Firebase-Konfigurationsdaten ---
+        // Die hier gezeigten Werte sind Beispiele.
+        const firebaseConfig = {
+            apiKey: "AIzaSyAVxDxToC0a7qm4IrR76T_r78hdCvt-sNA", // Ersetze dies
+            authDomain: "flutter-ai-playground-3c6bb.firebaseapp.com", // Ersetze dies
+            projectId: "flutter-ai-playground-3c6bb", // Ersetze dies
+            storageBucket: "flutter-ai-playground-3c6bb.firebasestorage.app", // Ersetze dies
+            messagingSenderId: "981983709791", // Ersetze dies
+            appId: "1:981983709791:web:fe9ebfa8b1eb290e2129ea" // Ersetze dies
+        };
+        // --- Ende Firebase Konfiguration ---
+
+        const appId = firebaseConfig.appId || 'default-app-id'; // Nutze appId aus config oder Fallback
+        const initialAuthToken = null; // Setze dies, wenn du Custom Token verwendest
+        
+        const getCollectionPath = (collectionName) => `/artifacts/${appId}/users/${userId}/${collectionName}`;
+        // Eigener Pfad für die Firmeneinstellungen
+        const getCompanySettingsPath = () => `/artifacts/${appId}/users/${userId}/company_settings/main`;
+
+        const VAT_RATE = 0.19; // 19%
+        
+        // ----------------------------------------------------------------------
+        // 2. Service Katalog (Unverändert)
+        // ----------------------------------------------------------------------
+        const serviceCatalog = {
+            'general_services': [
+                { id: 'gs1', name: 'Nutzung des Transportfahrzeugs', price: 100.00, unit: 'Pauschale' },
+                { id: 'gs2', name: 'Nutzung des Transportfahrzeugs (außerhalb Stadt - >50 km)', price: 450.00, unit: 'Pauschale' },
+            ],
+            'labor_and_assembly': [
+                { id: 'la1', name: 'Arbeitskraft (Stundenlohn)', price: 35.00, unit: 'Stunde' },
+                { id: 'la2', name: 'Ab- und Aufbau Großmöbel (z.B. Schrank)', price: 100.00, unit: 'Stück' },
+            ],
+            'packaging_materials': [
+                { id: 'pm1', name: 'Verpackung Großmöbel (pro Stück)', price: 35.00, unit: 'Stück' },
+            ],
+            'room_items': [ 
+                 { id: 'r_k_s1', room: 'Küche', name: 'Küchenschrank (klein)', transportPrice: 40.00, packagingPrice: 10.00, unit: 'Stück' },
+                 { id: 'r_w_s2', room: 'Wohnzimmer', name: '2-Sitzer-Sofa', transportPrice: 60.00, packagingPrice: 15.00, unit: 'Stück' },
+            ]
+        };
+
+        // ----------------------------------------------------------------------
+        // 3. App State
+        // ----------------------------------------------------------------------
+        const ERPApp = {
+            clients: [],
+            jobs: [],
+            invoices: [],
+            currentExpenses: [],
+            workers: [],
+            currentInvoiceItems: [],
+            clientSigPad: null,
+            companySigPad: null,
+            
+            // State für Firmeneinstellungen (inkl. Rechnungsnummer)
+            companySettings: {
+                companyName: "UmzugMester Hamburg",
+                ownerName: "Rabih Alahmad",
+                phone: "017622880402",
+                address: "Dannerallee 15, 22119 Hamburg",
+                email: "Rabih.alahmad@icloud.com",
+                taxId: "STEUERNUMMER HIER EINFÜGEN",
+                // NEU: Feld für die nächste Rechnungsnummer
+                nextInvoiceNumberString: "UM-2025-01" 
+            },
+            
+            // ----------------------------------------------------------------------
+            // 4. Firestore & Auth (Unverändert)
+            // ----------------------------------------------------------------------
+            async initFirebase() {
+                try {
+                    const app = initializeApp(firebaseConfig);
+                    db = getFirestore(app);
+                    auth = getAuth(app);
+                    
+                    const loadingMsg = document.getElementById('loading-message');
+
+                    if (initialAuthToken) {
+                         await signInWithCustomToken(auth, initialAuthToken);
+                    } else {
+                         await signInAnonymously(auth);
+                    }
+                    
+                    onAuthStateChanged(auth, (user) => {
+                        if (user) {
+                            userId = user.uid;
+                            isAuthReady = true;
+                            console.log("Firestore Ready. User ID:", userId);
+                            
+                            loadingMsg.textContent = 'Authentifizierung erfolgreich. Daten werden geladen...';
+                            ERPApp.loadData();
+                            ERPApp.changeTab('dashboard'); 
+                        } else {
+                            userId = 'anonymous-fallback';
+                            isAuthReady = true;
+                            console.warn("Auth state changed to null, using fallback ID.");
+                            loadingMsg.textContent = 'Authentifizierung fehlgeschlagen, starte im Fallback-Modus.';
+                            ERPApp.loadData();
+                            ERPApp.changeTab('dashboard');
+                        }
+                        document.getElementById('loading-overlay').classList.add('hidden');
+                    });
+
+                } catch (error) {
+                    console.error("Firebase Init Error:", error);
+                    document.getElementById('loading-message').textContent = `FEHLER: Firebase konnte nicht geladen werden.`;
+                    document.getElementById('loading-overlay').classList.add('hidden');
+                }
+            },
+            
+            async loadData() {
+                if (!isAuthReady || !userId) return;
+                
+                // Lade Firmeneinstellungen (inkl. Rechnungsnummer)
+                await ERPApp.loadCompanySettings();
+                
+                ERPApp.setupRealtimeListeners('clients', 'clients-list-body', ERPApp.renderClientsList, 
+                    (data) => {
+                        ERPApp.clients = data;
+                        ERPApp.populateClientSelect(); 
+                    }
+                );
+                
+                ERPApp.setupRealtimeListeners('jobs', 'jobs-list-body', ERPApp.renderJobsList, 
+                    (data) => { 
+                        ERPApp.jobs = data;
+                        ERPApp.populateJobSelects(); 
+                    }
+                );
+
+                ERPApp.setupRealtimeListeners('invoices', 'invoices-list-body', ERPApp.renderInvoicesList, (data) => ERPApp.invoices = data);
+                ERPApp.setupRealtimeListeners('expenses', 'expenses-list-body', ERPApp.renderExpensesList, (data) => ERPApp.currentExpenses = data);
+                ERPApp.setupRealtimeListeners('workers', 'workers-list-container', ERPApp.renderWorkersList, (data) => ERPApp.workers = data);
+                
+                ERPApp.calculateInvoiceTotal();
+            },
+
+            setupRealtimeListeners(collectionName, listElementId, renderFunction, updateState) {
+                const q = query(collection(db, getCollectionPath(collectionName)));
+                onSnapshot(q, (snapshot) => {
+                    const dataList = [];
+                    snapshot.forEach((doc) => {
+                        dataList.push({ id: doc.id, ...doc.data() });
+                    });
+                    
+                    // Sortierung (unverändert)
+                    if (dataList.length > 0 && dataList[0].date) {
+                         dataList.sort((a, b) => b.date - a.date);
+                    } else if (dataList.length > 0 && dataList[0].invoiceDate) {
+                        // NEU: Sortiere Rechnungen nach Rechnungsnummer (string-Vergleich)
+                         dataList.sort((a, b) => b.invoiceNumber.localeCompare(a.invoiceNumber));
+                    } else if (dataList.length > 0 && dataList[0].jobDate) {
+                         dataList.sort((a, b) => new Date(b.jobDate).getTime() - new Date(a.jobDate).getTime());
+                    }
+
+                    updateState(dataList);
+                    if(renderFunction) renderFunction(dataList); 
+                    
+                    if(collectionName === 'invoices' || collectionName === 'expenses') {
+                        ERPApp.updateReports(ERPApp.invoices, ERPApp.currentExpenses); 
+                    }
+                    
+                    console.log(`Daten für ${collectionName} aktualisiert. Anzahl: ${dataList.length}`);
+                }, (error) => {
+                    console.error(`Fehler bei Realtime-Listener für ${collectionName}:`, error);
+                    if(document.getElementById(listElementId)) {
+                        document.getElementById(listElementId).innerHTML = `<tr><td colspan="6" class="p-4 text-center text-red-600">Fehler beim Laden der Daten: ${error.message}</td></tr>`;
+                    }
+                });
+            },
+
+            // ----------------------------------------------------------------------
+            // 5. Kunden (CRM) & Aufträge (Jobs)
+            // ----------------------------------------------------------------------
+            
+            async saveNewClient() {
+                const name = document.getElementById('client-name-new').value.trim();
+                const address = document.getElementById('client-address-new').value.trim();
+                const phone = document.getElementById('client-phone-new').value.trim();
+                const email = document.getElementById('client-email-new').value.trim();
+                // NEU: Kundennummer
+                const customerNumber = document.getElementById('client-number-new').value.trim(); 
+                
+                if (!name || !address) return ERPApp.showNotification("Name und Adresse sind erforderlich.", 'error');
+
+                const newClient = { name, address, phone, email, customerNumber, createdAt: Date.now() };
+
+                try {
+                    await addDoc(collection(db, getCollectionPath('clients')), newClient);
+                    ERPApp.showNotification(`Kunde ${name} wurde gespeichert.`, 'success');
+                    document.getElementById('client-name-new').value = '';
+                    document.getElementById('client-address-new').value = '';
+                    document.getElementById('client-phone-new').value = '';
+                    document.getElementById('client-email-new').value = '';
+                    document.getElementById('client-number-new').value = ''; // NEU
+                } catch (e) {
+                    ERPApp.showNotification("Fehler beim Speichern des Kunden.", 'error');
+                }
+            },
+            
+            // Funktionen zum Bearbeiten von Kunden (Angepasst)
+            showClientEditModal(clientId) {
+                const client = ERPApp.clients.find(c => c.id === clientId);
+                if (!client) return ERPApp.showNotification("Kunde nicht gefunden.", 'error');
+
+                document.getElementById('client-edit-id').value = client.id;
+                document.getElementById('client-edit-name').value = client.name;
+                document.getElementById('client-edit-address').value = client.address;
+                document.getElementById('client-edit-phone').value = client.phone || '';
+                document.getElementById('client-edit-email').value = client.email || '';
+                // NEU: Kundennummer
+                document.getElementById('client-edit-number').value = client.customerNumber || ''; 
+                
+                document.getElementById('client-edit-modal').classList.remove('hidden');
+            },
+            
+            closeClientEditModal() {
+                 document.getElementById('client-edit-modal').classList.add('hidden');
+            },
+            
+            async saveClientEdits() {
+                const clientId = document.getElementById('client-edit-id').value;
+                const name = document.getElementById('client-edit-name').value.trim();
+                const address = document.getElementById('client-edit-address').value.trim();
+                const phone = document.getElementById('client-edit-phone').value.trim();
+                const email = document.getElementById('client-edit-email').value.trim();
+                // NEU: Kundennummer
+                const customerNumber = document.getElementById('client-edit-number').value.trim();
+                
+                if (!name || !address) return ERPApp.showNotification("Name und Adresse sind erforderlich.", 'error');
+                
+                const clientDocRef = doc(db, getCollectionPath('clients'), clientId);
+                
+                try {
+                    // NEU: update mit customerNumber
+                    await updateDoc(clientDocRef, { name, address, phone, email, customerNumber });
+                    ERPApp.showNotification("Kundendaten aktualisiert.", 'success');
+                    ERPApp.closeClientEditModal();
+                } catch (e) {
+                    ERPApp.showNotification("Fehler beim Aktualisieren der Kundendaten.", 'error');
+                }
+            },
+
+            // NEUE FUNKTION: Kunden löschen
+            async deleteClient(clientId, clientName) {
+                // 1. إظهار نافذة تأكيد
+                if (!confirm(`Sind Sie sicher, dass Sie den Kunden "${clientName}" löschen möchten?`)) {
+                    return; // إيقاف التنفيذ إذا ضغط المستخدم "Cancel"
+                }
+
+                // 2. تحديد مسار المستند
+                const clientDocRef = doc(db, getCollectionPath('clients'), clientId);
+                
+                try {
+                    // 3. تنفيذ الحذف
+                    await deleteDoc(clientDocRef);
+                    ERPApp.showNotification(`Kunde "${clientName}" wurde gelöscht.`, 'success');
+                    // سيقوم onSnapshot بتحديث القائمة تلقائياً
+                } catch (e) {
+                    console.error("Fehler beim Löschen des Kunden:", e);
+                    ERPApp.showNotification("Fehler beim Löschen des Kunden.", 'error');
+                }
+            },
+
+            // --- ENDE Neue Funktion ---
+
+            renderClientsList(clients) {
+                const container = document.getElementById('clients-list-body');
+                container.innerHTML = clients.map(client => `
+                    <tr class="border-b hover:bg-gray-50 text-left">
+                        <td class="p-3">
+                            <span class="font-semibold">${client.name}</span>
+                            ${client.customerNumber ? `<span class="block text-xs text-gray-500">Kundennr.: ${client.customerNumber}</span>` : ''}
+                        </td>
+                        <td class="p-3">${client.address}</td>
+                        <td class="p-3">${client.phone || '-'}</td>
+                        <td class="p-3">${client.email || '-'}</td>
+                        <td class="p-3 text-right">
+                            <div class="flex justify-end space-x-3">
+                                <button onclick="ERPApp.showClientEditModal('${client.id}')" class="text-blue-500 hover:text-blue-700 text-xs font-semibold flex items-center">
+                                    <i data-lucide="edit-2" class="w-4 h-4 mr-1"></i> Bearbeiten
+                                </button>
+                                <button onclick="ERPApp.deleteClient('${client.id}', '${client.name.replace(/'/g, "\\'")}')" class="text-red-500 hover:text-red-700 text-xs font-semibold flex items-center">
+                                    <i data-lucide="trash-2" class="w-4 h-4 mr-1"></i> Löschen
+                                </button>
+                            </div>
+                            </td>
+                    </tr>
+                `).join('') || '<tr><td colspan="5" class="text-center p-8 text-gray-500">Keine Kunden gefunden.</td></tr>';
+                lucide.createIcons();
+            },
+
+            async saveNewJob() {
+                const title = document.getElementById('job-title-new').value.trim();
+                const clientId = document.getElementById('job-client-select').value;
+                const jobDate = document.getElementById('job-date-new').value;
+
+                if (!title || !clientId || !jobDate) return ERPApp.showNotification("Titel, Kunde und Datum sind erforderlich.", 'error');
+
+                const client = ERPApp.clients.find(c => c.id === clientId);
+                if (!client) return ERPApp.showNotification("Ausgewählter Kunde ungültig.", 'error');
+
+                const newJob = { 
+                    title, 
+                    clientId, 
+                    clientName: client.name, 
+                    clientAddress: client.address, 
+                    clientCustomerNumber: client.customerNumber || '', // NEU: Kundennummer in Auftrag kopieren
+                    jobDate, 
+                    status: 'Geplant', // Status: Geplant, In Bearbeitung, Abgeschlossen
+                    createdAt: Date.now()
+                };
+
+                try {
+                    await addDoc(collection(db, getCollectionPath('jobs')), newJob);
+                    ERPApp.showNotification(`Auftrag ${title} wurde erstellt.`, 'success');
+                    document.getElementById('job-title-new').value = '';
+                    document.getElementById('job-client-select').value = '';
+                    document.getElementById('job-date-new').value = '';
+                } catch (e) {
+                    ERPApp.showNotification("Fehler beim Speichern des Auftrags.", 'error');
+                }
+            },
+            
+            renderJobsList(jobs) {
+                 const container = document.getElementById('jobs-list-body');
+                 container.innerHTML = jobs.map(job => {
+                     let statusClass = 'bg-yellow-100 text-yellow-800'; // Geplant
+                     if (job.status === 'Abgeschlossen') statusClass = 'badge-success';
+                     if (job.status === 'In Bearbeitung') statusClass = 'bg-blue-100 text-blue-800';
+
+                      return `
+                         <tr class="border-b hover:bg-gray-50 text-left">
+                             <td class="p-3 font-semibold">${job.title}</td>
+                             <td class="p-3">
+                                 ${job.clientName}
+                                 ${job.clientCustomerNumber ? `<span class="block text-xs text-gray-500">Kundennr.: ${job.clientCustomerNumber}</span>` : ''}
+                             </td>
+                             <td class="p-3">${new Date(job.jobDate).toLocaleDateString('de-DE')}</td>
+                             <td class="p-3"><span class="px-3 py-1 rounded-full text-xs font-medium ${statusClass}">${job.status}</span></td>
+                             <td class="p-3 text-right">
+                                 <button onclick="ERPApp.showNotification('Funktion nicht implementiert.')" class="text-blue-500 hover:text-blue-700 text-xs font-semibold">Status ändern</button>
+                             </td>
+                         </tr>
+                     `;
+                 }).join('') || '<tr><td colspan="5" class="text-center p-8 text-gray-500">Keine Aufträge gefunden.</td></tr>';
+                 lucide.createIcons(); // NEU: Icons neu erstellen
+            },
+
+            populateClientSelect() {
+                const select = document.getElementById('job-client-select');
+                if (!select) return;
+                select.innerHTML = '<option value="">-- Kunde auswählen --</option>';
+                ERPApp.clients.forEach(client => {
+                    select.innerHTML += `<option value="${client.id}">${client.name} ${client.customerNumber ? `(${client.customerNumber})` : ''} - ${client.address}</option>`;
+                });
+            },
+            
+            populateJobSelects() {
+                const selects = [
+                    document.getElementById('job-select-for-invoice'),
+                    document.getElementById('job-select-for-expense')
+                ];
+                
+                selects.forEach(select => {
+                    if (!select) return;
+                    const currentValue = select.value; 
+                    let optionsHtml = '<option value="">-- Auftrag auswählen --</option>';
+                    
+                    const activeJobs = ERPApp.jobs.filter(j => j.status !== 'Abgeschlossen');
+                    const completedJobs = ERPApp.jobs.filter(j => j.status === 'Abgeschlossen');
+                    
+                    if(activeJobs.length > 0) {
+                        optionsHtml += '<optgroup label="Aktive Aufträge">';
+                        activeJobs.forEach(job => {
+                            optionsHtml += `<option value="${job.id}">${job.title} (Kunde: ${job.clientName})</option>`;
+                        });
+                        optionsHtml += '</optgroup>';
+                    }
+                    
+                    if(completedJobs.length > 0) {
+                        optionsHtml += '<optgroup label="Abgeschlossene Aufträge">';
+                        completedJobs.forEach(job => {
+                            optionsHtml += `<option value="${job.id}">${job.title} (Kunde: ${job.clientName})</option>`;
+                        });
+                        optionsHtml += '</optgroup>';
+                    }
+
+                    select.innerHTML = optionsHtml;
+                    select.value = currentValue; 
+                });
+            },
+
+            // ----------------------------------------------------------------------
+            // 6. Rechnungen & PDF (Logik angepasst)
+            // ----------------------------------------------------------------------
+            calculateInvoiceTotal() {
+                // (Funktion unverändert)
+                let servicesNetTotal = ERPApp.currentInvoiceItems.reduce((acc, item) => acc + (item.price * item.quantity), 0);
+                
+                const discountPercentage = parseFloat(document.getElementById('discount-percentage').value) || 0;
+                const discountFactor = 1 - (discountPercentage / 100);
+                servicesNetTotal *= discountFactor;
+                
+                const vatAmount = servicesNetTotal * VAT_RATE;
+                const totalBrutto = servicesNetTotal + vatAmount;
+                
+                const initialPayment = parseFloat(document.getElementById('initial-payment').value) || 0;
+                const amountDue = totalBrutto - initialPayment;
+
+                document.getElementById('invoice-net-total').textContent = servicesNetTotal.toFixed(2);
+                document.getElementById('invoice-vat-amount').textContent = vatAmount.toFixed(2);
+                document.getElementById('invoice-vat-rate').textContent = (VAT_RATE * 100).toFixed(0);
+                document.getElementById('invoice-total-brutto').textContent = totalBrutto.toFixed(2);
+                document.getElementById('invoice-amount-due').textContent = amountDue.toFixed(2);
+                
+                const dueStatus = document.getElementById('due-status');
+                if (amountDue <= 0) {
+                    dueStatus.className = 'badge-success text-sm px-3 py-1 rounded-full font-bold';
+                    dueStatus.textContent = 'Bezahlt';
+                } else {
+                    dueStatus.className = 'badge-danger text-sm px-3 py-1 rounded-full font-bold';
+                    dueStatus.textContent = 'Offen';
+                }
+
+                return { 
+                    servicesNetTotal, 
+                    vatAmount, 
+                    totalBrutto, 
+                    amountDue,
+                    discountPercentage,
+                    initialPayment
+                };
+            },
+            
+            addItemToInvoice(itemData) {
+                // (Funktion unverändert)
+                const itemId = itemData.id; 
+                const existingItem = ERPApp.currentInvoiceItems.find(item => item.id === itemId);
+                if (existingItem) {
+                    existingItem.quantity += 1;
+                } else {
+                    ERPApp.currentInvoiceItems.push({ 
+                        id: itemId, 
+                        name: itemData.name, 
+                        price: itemData.price, 
+                        unit: itemData.unit || 'Pauschale', 
+                        quantity: 1,
+                        description: itemData.description || '' 
+                    });
+                }
+                ERPApp.renderInvoiceItems();
+                ERPApp.calculateInvoiceTotal();
+            },
+
+            updateQuantity(id, change) {
+                // (Funktion unverändert)
+                const item = ERPApp.currentInvoiceItems.find(i => i.id === id);
+                if (item) {
+                    item.quantity += change;
+                    if (item.quantity <= 0) {
+                        ERPApp.currentInvoiceItems = ERPApp.currentInvoiceItems.filter(i => i.id !== id);
+                    }
+                }
+                ERPApp.renderInvoiceItems();
+                ERPApp.calculateInvoiceTotal();
+            },
+
+            updateItemPrice(id, newPrice) {
+                // (Funktion unverändert)
+                const item = ERPApp.currentInvoiceItems.find(i => i.id === id);
+                if (item) {
+                     item.price = parseFloat(newPrice) || 0;
+                }
+                ERPApp.renderInvoiceItems();
+                ERPApp.calculateInvoiceTotal();
+            },
+
+            renderInvoiceItems() {
+                // (Funktion unverändert)
+                const container = document.getElementById('invoice-items-container');
+                container.innerHTML = '';
+                
+                if (ERPApp.currentInvoiceItems.length === 0) {
+                    container.innerHTML = '<p class="text-gray-500 text-center p-6"><i data-lucide="box" class="inline w-5 h-5 mr-2"></i>Keine Leistungen hinzugefügt.</p>';
+                    lucide.createIcons(); 
+                    return;
+                }
+
+                ERPApp.currentInvoiceItems.forEach(item => {
+                    const totalItemPrice = item.price * item.quantity;
+                    const itemHtml = `
+                        <div class="flex items-center justify-between p-3 border-b border-gray-100 bg-white">
+                            <div class="w-1/3 text-left">
+                                <span class="font-medium">${item.name}</span>
+                                <span class="text-xs text-gray-500 block">${item.unit} ${item.description}</span>
+                            </div>
+                            <div class="w-1/4">
+                                <input type="number" value="${item.price.toFixed(2)}" step="0.01" onchange="ERPApp.updateItemPrice('${item.id}', this.value)" class="input-style w-full text-xs text-right p-1">
+                            </div>
+                            <div class="w-1/4 flex justify-center items-center">
+                                <button onclick="ERPApp.updateQuantity('${item.id}', 1)" class="text-blue-500 hover:text-blue-700 font-bold p-1"><i data-lucide="plus" class="w-4 h-4"></i></button>
+                                <span class="mx-2 font-mono text-sm">${item.quantity}</span>
+                                <button onclick="ERPApp.updateQuantity('${item.id}', -1)" class="text-red-500 hover:text-red-700 font-bold p-1"><i data-lucide="minus" class="w-4 h-4"></i></button>
+                            </div>
+                            <div class="w-1/4 text-right font-semibold text-sm">
+                                ${totalItemPrice.toFixed(2)} €
+                            </div>
+                        </div>
+                    `;
+                    container.innerHTML += itemHtml;
+                });
+                lucide.createIcons(); 
+            },
+
+            // --- PDF-GENERIERUNG (Angepasst für Kundennummer) ---
+            generatePDF(invoiceData) {
+                const { jsPDF } = window.jspdf;
+                const doc = new jsPDF('p', 'mm', 'a4');
+                const margin = 15;
+                let y = margin;
+                const pageWidth = doc.internal.pageSize.getWidth();
+                const pageHeight = doc.internal.pageSize.getHeight();
+                const lineSpacing = 5;
+                const itemLineSpacing = 4; // Engerer Abstand für TextumBruch
+                
+                // PDF-Header aus companySettings
+                doc.setFont('Helvetica', 'Bold');
+                doc.setFontSize(24);
+                doc.setTextColor(30, 64, 175);
+                doc.text(ERPApp.companySettings.companyName, margin, y);
+                y += 8;
+                doc.setFontSize(10);
+                doc.setFont('Helvetica', 'Normal');
+                doc.setTextColor(107, 114, 128);
+                doc.text(`Inh. ${ERPApp.companySettings.ownerName}`, margin, y);
+                y += lineSpacing;
+                doc.text(ERPApp.companySettings.address, margin, y);
+                y += lineSpacing;
+                doc.text(`Tel: ${ERPApp.companySettings.phone} | E-Mail: ${ERPApp.companySettings.email}`, margin, y);
+                y += lineSpacing;
+                doc.text(`USt-IdNr.: ${ERPApp.companySettings.taxId}`, margin, y);
+                y += 15;
+
+                // Rechnungsdetails (Rechts)
+                doc.setFontSize(10);
+                doc.setTextColor(55, 65, 81);
+                doc.setFont('Helvetica', 'Bold');
+                doc.text('RECHNUNG', pageWidth - margin, y, { align: 'right' });
+                y += lineSpacing;
+                doc.setFont('Helvetica', 'Normal');
+                doc.text(`Nr.: ${invoiceData.invoiceNumber}`, pageWidth - margin, y, { align: 'right' });
+                y += lineSpacing;
+                doc.text(`Datum: ${ERPApp.formatDate(invoiceData.invoiceDate)}`, pageWidth - margin, y, { align: 'right' });
+                
+                // Empfänger (Links, unter Header)
+                let yLeft = y - (lineSpacing * 2); // Gehe zurück zur Höhe der Rechnungsdetails
+                doc.setFont('Helvetica', 'Bold');
+                doc.text('Empfänger:', margin, yLeft);
+                yLeft += lineSpacing;
+                doc.setFont('Helvetica', 'Normal');
+                
+                // Adressblock mit UmBruch
+                const clientAddressLines = doc.splitTextToSize(invoiceData.clientAddress, 80);
+                doc.text(invoiceData.clientName, margin, yLeft);
+                yLeft += lineSpacing;
+                
+                // NEU: Kundennummer in PDF
+                if (invoiceData.clientCustomerNumber) {
+                    doc.setFont('Helvetica', 'Bold');
+                    doc.text(`Kundennr.: ${invoiceData.clientCustomerNumber}`, margin, yLeft);
+                    yLeft += lineSpacing;
+                    doc.setFont('Helvetica', 'Normal');
+                }
+                
+                doc.text(clientAddressLines, margin, yLeft);
+                
+                y = Math.max(y, yLeft + (clientAddressLines.length * lineSpacing)) + 10; // Setze y auf den höchsten Punkt + Puffer
+
+                // ITEM-TABELLE (Unverändert)
+                doc.setFillColor(230, 230, 230); 
+                doc.rect(margin, y, pageWidth - 2 * margin, 8, 'F');
+                doc.setFontSize(10);
+                doc.setFont('Helvetica', 'Bold');
+                doc.setTextColor(55, 65, 81);
+                doc.text('Beschreibung', margin + 2, y + 5.5);
+                doc.text('Menge', 140, y + 5.5, { align: 'right' });
+                doc.text('Einzelpreis', 160, y + 5.5, { align: 'right' });
+                doc.text('Gesamt (Netto)', pageWidth - margin - 2, y + 5.5, { align: 'right' });
+                y += 8;
+
+                doc.setFont('Helvetica', 'Normal');
+                doc.setFontSize(9);
+                doc.setTextColor(0, 0, 0);
+
+                const checkPageBreak = (currentY, neededSpace) => {
+                    if (currentY + neededSpace > pageHeight - margin) { // Wenn Platz nicht reicht
+                        doc.addPage();
+                        return margin; // Setze Y auf Top-Margin
+                    }
+                    return currentY; // Sonst Y beibehalten
+                };
+                
+                const itemDescWidth = 120; // Breite für Beschreibungstext
+
+                invoiceData.items.forEach(item => {
+                    const itemTotal = item.price * item.quantity;
+                    const nameLines = doc.splitTextToSize(item.name, itemDescWidth);
+                    let neededHeight = nameLines.length * itemLineSpacing;
+                    if (item.unit || item.description) {
+                        neededHeight += (itemLineSpacing + 2); 
+                    }
+                    
+                    y = checkPageBreak(y, neededHeight); 
+                    let yItemStart = y;
+
+                    doc.text(nameLines, margin + 2, y + 4);
+                    y += (nameLines.length - 1) * itemLineSpacing;
+                    
+                    doc.text(item.quantity.toString(), 140, yItemStart + 4, { align: 'right' });
+                    doc.text(`${item.price.toFixed(2)} €`, 160, yItemStart + 4, { align: 'right' });
+                    doc.text(`${itemTotal.toFixed(2)} €`, pageWidth - margin - 2, yItemStart + 4, { align: 'right' });
+                    y += itemLineSpacing + 1; 
+                    
+                    if (item.unit || item.description) {
+                        doc.setFontSize(7);
+                        doc.setTextColor(107, 114, 128); 
+                        const descText = `${item.unit || ''} ${item.description || ''}`;
+                        const descLines = doc.splitTextToSize(descText, itemDescWidth);
+                        doc.text(descLines, margin + 3, y + 2);
+                        doc.setFontSize(9);
+                        doc.setTextColor(0, 0, 0);
+                        y += (descLines.length * (itemLineSpacing-1)) + 2; 
+                    }
+                    y += 2; 
+                });
+                
+                // ZUSAMMENFASSUNG (Unverändert)
+                y = Math.max(y + 5, 200); 
+                y = checkPageBreak(y, 60); 
+                
+                doc.setDrawColor(200, 200, 200);
+                doc.line(margin, y, pageWidth - margin, y);
+                y += 5;
+
+                const summaryX = 140; 
+                doc.setFontSize(10);
+
+                doc.text('Nettobetrag:', summaryX, y);
+                doc.setFont('Helvetica', 'Bold');
+                doc.text(`${invoiceData.servicesNetTotal.toFixed(2)} €`, pageWidth - margin, y, { align: 'right' });
+                doc.setFont('Helvetica', 'Normal');
+                y += 5;
+                
+                if (invoiceData.discountPercentage > 0) {
+                     doc.setTextColor(107, 114, 128); 
+                     doc.text(`(Inkl. ${invoiceData.discountPercentage}% Rabatt)`, summaryX, y);
+                     y += 5;
+                }
+
+                doc.setTextColor(55, 65, 81); 
+                doc.text(`MwSt (${(invoiceData.vatRate * 100).toFixed(0)}%):`, summaryX, y);
+                doc.text(`${invoiceData.vatAmount.toFixed(2)} €`, pageWidth - margin, y, { align: 'right' });
+                y += 7;
+
+                doc.setDrawColor(55, 65, 81);
+                doc.line(summaryX, y, pageWidth - margin, y); 
+                y += 5;
+                doc.setFontSize(12);
+                doc.setFont('Helvetica', 'Bold');
+                doc.setTextColor(30, 64, 175); 
+                doc.text('GESAMT BRUTTO:', summaryX, y);
+                doc.text(`${invoiceData.totalBrutto.toFixed(2)} €`, pageWidth - margin, y, { align: 'right' });
+                y += 8;
+
+                doc.setFontSize(10);
+                doc.setFont('Helvetica', 'Normal');
+                doc.setTextColor(55, 65, 81);
+                doc.text('Erhaltene Anzahlung:', summaryX, y);
+                doc.text(`-${invoiceData.initialPayment.toFixed(2)} €`, pageWidth - margin, y, { align: 'right' });
+                y += 7;
+                
+                doc.line(summaryX, y, pageWidth - margin, y); 
+                y += 5;
+                doc.setFontSize(14);
+                doc.setFont('Helvetica', 'Bold');
+                doc.setTextColor(185, 28, 28); 
+                doc.text('OFFENER BETRAG:', summaryX, y);
+                doc.text(`${invoiceData.amountDue.toFixed(2)} €`, pageWidth - margin, y, { align: 'right' });
+                y += 10;
+                
+                // UNTERSCHRIFTEN (Unverändert)
+                y = pageHeight - 45; 
+                const sigWidth = 60;
+                const sigHeight = 25;
+                
+                doc.setFontSize(9);
+                doc.setFont('Helvetica', 'Normal');
+                doc.setTextColor(55, 65, 81);
+
+                const clientSigX = margin;
+                doc.text('Unterschrift des Kunden:', clientSigX, y);
+                if (invoiceData.signatures?.client) {
+                    doc.addImage(invoiceData.signatures.client, 'PNG', clientSigX, y + 2, sigWidth, sigHeight);
+                }
+                doc.line(clientSigX, y + sigHeight + 4, clientSigX + sigWidth, y + sigHeight + 4);
+                
+                const companySigX = pageWidth - margin - sigWidth;
+                doc.text('Unterschrift der Firma:', companySigX, y);
+                if (invoiceData.signatures?.company) {
+                    doc.addImage(invoiceData.signatures.company, 'PNG', companySigX, y + 2, sigWidth, sigHeight);
+                }
+                doc.line(companySigX, y + sigHeight + 4, companySigX + sigWidth, y + sigHeight + 4);
+
+                return doc.output('datauristring');
+            },
+            
+            // dataURI zu Blob Konverter (Unverändert)
+            dataURIToBlob(dataURI) {
+                const byteString = atob(dataURI.split(',')[1]);
+                const mimeString = dataURI.split(',')[0].split(':')[1].split(';')[0];
+                const ab = new ArrayBuffer(byteString.length);
+                const ia = new Uint8Array(ab);
+                for (let i = 0; i < byteString.length; i++) {
+                    ia[i] = byteString.charCodeAt(i);
+                }
+                return new Blob([ab], { type: mimeString });
+            },
+
+            // Share-Funktion (Unverändert)
+            async sharePDF(pdfDataUri, invoiceNumber) {
+                if (!navigator.share) {
+                    ERPApp.showNotification('Die "Teilen"-Funktion wird von diesem Browser nicht unterstützt.', 'info');
+                    return;
+                }
+
+                try {
+                    const blob = ERPApp.dataURIToBlob(pdfDataUri);
+                    const pdfFile = new File([blob], `${invoiceNumber}.pdf`, { type: 'application/pdf' });
+
+                    await navigator.share({
+                        files: [pdfFile],
+                        title: `Rechnung ${invoiceNumber}`,
+                        text: `Anbei die Rechnung ${invoiceNumber} von ${ERPApp.companySettings.companyName}.`
+                    });
+                    ERPApp.showNotification('PDF wird geteilt...', 'success');
+                } catch (error) {
+                    if (error.name !== 'AbortError') { // Ignoriere, wenn der Nutzer selbst abbricht
+                        console.error('Fehler beim Teilen:', error);
+                        ERPApp.showNotification('Fehler beim Teilen der PDF.', 'error');
+                    }
+                }
+            },
+            
+            showPDFModal(pdfDataUri, invoiceNumber) {
+                // (Funktion unverändert)
+                const modal = document.getElementById('pdf-modal');
+                const iframe = document.getElementById('pdf-iframe');
+                const title = document.getElementById('pdf-modal-title');
+                const downloadBtn = document.getElementById('pdf-download-btn');
+                const shareBtn = document.getElementById('pdf-share-btn'); 
+                
+                title.textContent = `Vorschau: Rechnung ${invoiceNumber}`;
+                iframe.src = pdfDataUri;
+                
+                downloadBtn.onclick = () => {
+                    const link = document.createElement('a');
+                    link.href = pdfDataUri;
+                    link.download = `${invoiceNumber}.pdf`;
+                    link.click();
+                    ERPApp.showNotification('PDF-Download gestartet.', 'success');
+                };
+                
+                shareBtn.onclick = () => {
+                    ERPApp.sharePDF(pdfDataUri, invoiceNumber);
+                };
+                
+                modal.classList.remove('hidden');
+            },
+            closePDFModal() {
+                // (Funktion unverändert)
+                document.getElementById('pdf-modal').classList.add('hidden');
+                document.getElementById('pdf-iframe').src = 'about:blank';
+            },
+
+            // --- RECHNUNG SPEICHERN (Angepasst für Rechnungsnummer & Kundennr.) ---
+            async saveInvoice() {
+                if (ERPApp.currentInvoiceItems.length === 0) return ERPApp.showNotification("Bitte Leistungen hinzufügen.", 'error');
+
+                const jobId = document.getElementById('job-select-for-invoice').value;
+                if (!jobId) return ERPApp.showNotification("Bitte einen Auftrag für diese Rechnung auswählen.", 'error');
+                
+                const job = ERPApp.jobs.find(j => j.id === jobId);
+                if (!job) return ERPApp.showNotification("Ausgewählter Auftrag ungültig.", 'error');
+                
+                const clientName = job.clientName;
+                const clientAddress = job.clientAddress;
+                // NEU: Kundennummer vom Auftrag holen
+                const clientCustomerNumber = job.clientCustomerNumber || ''; 
+                
+                if (ERPApp.clientSigPad.isEmpty() || ERPApp.companySigPad.isEmpty()) {
+                     return ERPApp.showNotification("Bitte beide Unterschriften hinzufügen.", 'error');
+                }
+
+                const { servicesNetTotal, vatAmount, totalBrutto, amountDue, initialPayment, discountPercentage } = ERPApp.calculateInvoiceTotal();
+                
+                const clientSignature = ERPApp.clientSigPad.toDataURL();
+                const companySignature = ERPApp.companySigPad.toDataURL();
+
+                // NEU: Rechnungsnummer-Logik
+                // 1. Hole die *aktuelle* nächste Nummer
+                const currentInvoiceNumber = ERPApp.companySettings.nextInvoiceNumberString;
+                
+                // 2. Berechne die *darauffolgende* Nummer
+                const nextInvoiceNumber = ERPApp.incrementInvoiceNumber(currentInvoiceNumber);
+
+                const newInvoice = {
+                    jobId: jobId, 
+                    clientName, 
+                    clientAddress,
+                    clientCustomerNumber, // NEU: Speichere Kundennummer in Rechnung
+                    items: ERPApp.currentInvoiceItems.map(item => ({...item})),
+                    servicesNetTotal, 
+                    vatRate: VAT_RATE, 
+                    vatAmount, 
+                    totalBrutto,
+                    initialPayment,
+                    amountDue,
+                    discountPercentage,
+                    isPaid: amountDue <= 0,
+                    invoiceDate: Date.now(), 
+                    invoiceNumber: currentInvoiceNumber, // NEU: Setze die aktuelle Nummer
+                    signatures: { client: clientSignature, company: companySignature }
+                };
+
+                try {
+                    // Speichere die Rechnung
+                    const docRef = await addDoc(collection(db, getCollectionPath('invoices')), newInvoice);
+                    ERPApp.showNotification(`Rechnung ${newInvoice.invoiceNumber} gespeichert.`, 'success');
+                    
+                    // NEU: Aktualisiere die nächste Rechnungsnummer in den Einstellungen
+                    ERPApp.companySettings.nextInvoiceNumberString = nextInvoiceNumber;
+                    await ERPApp.saveCompanySettings(); // Speichere die *neue* nächste Nummer in Firestore
+                    ERPApp.populateSettingsForm(); // Aktualisiere das Einstellungs-UI (falls offen)
+                    
+                    // Zeige PDF
+                    const pdfDataUri = ERPApp.generatePDF(newInvoice);
+                    ERPApp.showPDFModal(pdfDataUri, newInvoice.invoiceNumber);
+
+                    // Formular zurücksetzen
+                    ERPApp.resetInvoiceForm();
+                } catch (e) {
+                    console.error("Fehler beim Speichern der Rechnung:", e);
+                    ERPApp.showNotification("Fehler beim Speichern der Rechnung.", 'error');
+                }
+            },
+            
+            // NEU: Hilfsfunktion zur Inkrementierung der Rechnungsnummer
+            incrementInvoiceNumber(invoiceString) {
+                // Regex, um den Text-Präfix und die Endnummer zu finden
+                // (.*?) = non-greedy capture für den Präfix (z.B. "UM-2025-")
+                // (\d+)$ = greedy capture für die Ziffern am Ende (z.B. "01")
+                const match = invoiceString.match(/(.*?)(\d+)$/);
+
+                if (match) {
+                    const prefix = match[1]; // z.B. "UM-2025-"
+                    const numberStr = match[2]; // z.B. "01"
+                    const numberLen = numberStr.length; // z.B. 2
+                    
+                    // Nummer + 1
+                    const nextNum = parseInt(numberStr, 10) + 1; // z.B. 2
+                    
+                    // Fülle mit führenden Nullen, basierend auf der *alten* Länge
+                    const nextNumStr = nextNum.toString().padStart(numberLen, '0'); // z.B. "02"
+                    
+                    return prefix + nextNumStr; // z.B. "UM-2025-02"
+                } else {
+                    // Fallback, falls kein Zahlenformat gefunden wurde
+                    return invoiceString + "-1";
+                }
+            },
+            
+            previewInvoice(invoiceId) {
+                // (Funktion unverändert)
+                const invoice = ERPApp.invoices.find(inv => inv.id === invoiceId);
+                if (invoice) {
+                    const pdfDataUri = ERPApp.generatePDF(invoice);
+                    ERPApp.showPDFModal(pdfDataUri, invoice.invoiceNumber);
+                } else {
+                    ERPApp.showNotification('Rechnung nicht gefunden.', 'error');
+                }
+            },
+            
+            resetInvoiceForm() {
+                // (Funktion unverändert)
+                ERPApp.currentInvoiceItems = [];
+                document.getElementById('job-select-for-invoice').value = '';
+                document.getElementById('client-details-display').innerHTML = '<p class="text-gray-500 text-sm">Bitte einen Auftrag auswählen, um Kundendaten zu laden.</p>';
+                document.getElementById('discount-percentage').value = '0';
+                document.getElementById('initial-payment').value = '0.00';
+                ERPApp.clientSigPad.clear();
+                ERPApp.companySigPad.clear();
+                ERPApp.renderInvoiceItems();
+                ERPApp.calculateInvoiceTotal();
+                ERPApp.changeTab('invoice');
+            },
+
+            updateClientDisplayForInvoice() {
+                // (Funktion unverändert)
+                const jobId = document.getElementById('job-select-for-invoice').value;
+                const display = document.getElementById('client-details-display');
+                if (!jobId) {
+                    display.innerHTML = '<p class="text-gray-500 text-sm">Bitte einen Auftrag auswählen, um Kundendaten zu laden.</p>';
+                    return;
+                }
+                const job = ERPApp.jobs.find(j => j.id === jobId);
+                if (job) {
+                    display.innerHTML = `
+                        <p class="font-bold text-lg">${job.clientName}</p>
+                        <p class="text-sm text-gray-600">${job.clientAddress}</p>
+                        ${job.clientCustomerNumber ? `<p class="text-sm text-blue-600 font-medium">Kundennr.: ${job.clientCustomerNumber}</p>` : ''}
+                    `;
+                }
+            },
+
+            // ----------------------------------------------------------------------
+            // 7. Mitarbeiter (Workers) - (Unverändert)
+            // ----------------------------------------------------------------------
+            async saveNewWorker() {
+                const name = document.getElementById('new-worker-name').value.trim();
+                if (!name) return ERPApp.showNotification("Bitte geben Sie einen Namen ein.", 'error');
+                const newWorker = { name, status: 'Aktiv', payments: [] };
+                
+                try {
+                    await addDoc(collection(db, getCollectionPath('workers')), newWorker);
+                    document.getElementById('new-worker-name').value = '';
+                    ERPApp.showNotification(`Mitarbeiter ${name} wurde gespeichert.`, 'success');
+                } catch (e) {
+                     ERPApp.showNotification("Fehler beim Speichern des Mitarbeiters.", 'error');
+                }
+            },
+
+            showWorkerPaymentModal(workerId) {
+                const worker = ERPApp.workers.find(w => w.id === workerId);
+                if (!worker) return;
+
+                document.getElementById('modal-title').textContent = `Zahlung für: ${worker.name}`;
+                document.getElementById('modal-worker-id').value = workerId;
+                document.getElementById('modal-payment-amount').value = '';
+                document.getElementById('modal-payment-type').value = 'Lohnzahlung';
+                document.getElementById('payment-modal').classList.remove('hidden');
+            },
+            
+            closeWorkerPaymentModal() {
+                 document.getElementById('payment-modal').classList.add('hidden');
+            },
+            
+            async saveWorkerPaymentFromModal() {
+                const workerId = document.getElementById('modal-worker-id').value;
+                const amount = parseFloat(document.getElementById('modal-payment-amount').value);
+                const type = document.getElementById('modal-payment-type').value;
+
+                if (isNaN(amount) || amount <= 0) {
+                    return ERPApp.showNotification("Ungültiger Zahlungsbetrag.", 'error');
+                }
+                
+                const newPayment = { date: Date.now(), amount, type };
+                
+                try {
+                    const workerDocRef = doc(db, getCollectionPath('workers'), workerId);
+                    await updateDoc(workerDocRef, {
+                        payments: arrayUnion(newPayment)
+                    });
+                    ERPApp.showNotification(`${amount.toFixed(2)} € als ${type} gespeichert.`, 'success');
+                    ERPApp.closeWorkerPaymentModal();
+                } catch (e) {
+                    ERPApp.showNotification("Fehler beim Hinzufügen der Zahlung.", 'error');
+                }
+            },
+
+            renderWorkersList(workers) {
+                const container = document.getElementById('workers-list-container');
+                container.innerHTML = workers.map(worker => {
+                    const totalPaid = worker.payments.reduce((sum, p) => sum + p.amount, 0);
+                    const paymentsHtml = worker.payments.map(p => `
+                        <span class="text-xs ${p.type === 'Vorschuss' ? 'text-red-600' : 'text-green-600'} block">
+                            ${ERPApp.formatDate(p.date)} (${p.type}): ${p.amount.toFixed(2)} €
+                        </span>
+                    `).join('');
+                    
+                    return `
+                        <div class="card p-4 mb-4 border-l-4 ${worker.status === 'Aktiv' ? 'border-green-500' : 'border-gray-500'}">
+                            <div class="flex justify-between items-start">
+                                <div class="font-bold text-lg">${worker.name}</div>
+                                <div>
+                                    <span class="text-sm px-3 py-1 rounded-full ${worker.status === 'Aktiv' ? 'badge-success' : 'badge-danger'}">${worker.status}</span>
+                                </div>
+                            </div>
+                            <div class="mt-3 text-sm text-left">
+                                <p class="font-semibold text-gray-700">Gesamtauszahlungen: ${totalPaid.toFixed(2)} €</p>
+                                <div class="mt-2 space-y-1 max-h-24 overflow-y-auto no-scrollbar">
+                                    ${paymentsHtml || '<span class="text-gray-500 text-xs">Keine Zahlungen erfasst.</span>'}
+                                </div>
+                            </div>
+                            <div class="mt-4 flex space-x-2">
+                                 <button onclick="ERPApp.showWorkerPaymentModal('${worker.id}')" class="text-sm btn-primary py-2 px-4 bg-orange-500 hover:bg-orange-600">
+                                     Zahlung/Vorschuss
+                                 </button>
+                            </div>
+                        </div>
+                    `;
+                }).join('') || '<p class="text-center p-8 text-gray-500">Keine Mitarbeiter gefunden.</p>';
+            },
+
+            // ----------------------------------------------------------------------
+            // 8. Ausgaben (Expenses) - (Unverändert)
+            // ----------------------------------------------------------------------
+            async saveExpense() {
+                const description = document.getElementById('expense-description').value.trim();
+                const amount = parseFloat(document.getElementById('expense-amount').value);
+                const type = document.getElementById('expense-type').value; 
+                const receiptImageURL = document.getElementById('receipt-image-url').value.trim();
+                const jobId = document.getElementById('job-select-for-expense').value; 
+                
+                if (!description || isNaN(amount) || amount <= 0) return ERPApp.showNotification("Bitte Beschreibung und Betrag eingeben.", 'error');
+
+                const newExpense = {
+                    description,
+                    amount,
+                    type,
+                    receiptImageURL,
+                    date: Date.now(),
+                    jobId: jobId || null 
+                };
+
+                try {
+                    await addDoc(collection(db, getCollectionPath('expenses')), newExpense);
+                    ERPApp.showNotification("Ausgabe erfolgreich gespeichert.", 'success');
+                    document.getElementById('expense-description').value = '';
+                    document.getElementById('expense-amount').value = '';
+                    document.getElementById('receipt-image-url').value = '';
+                    document.getElementById('job-select-for-expense').value = ''; 
+                } catch (e) {
+                    ERPApp.showNotification("Fehler beim Speichern der Ausgabe.", 'error');
+                }
+            },
+
+            renderExpensesList(expenses) {
+                 const container = document.getElementById('expenses-list-body');
+                 container.innerHTML = expenses.map(expense => {
+                      const receiptIcon = expense.receiptImageURL ? 
+                           `<a href="${expense.receiptImageURL}" target="_blank" class="text-blue-500 hover:text-blue-700" title="Quittung ansehen"><i data-lucide="receipt"></i></a>` : 
+                           `<i data-lucide="minus-circle" class="text-gray-400" title="Keine Quittung"></i>`;
+                      
+                     let jobInfo = '';
+                     if (expense.jobId) {
+                         const job = ERPApp.jobs.find(j => j.id === expense.jobId);
+                         jobInfo = job ? `<span class="text-xs text-blue-600 block">${job.title}</span>` : '<span class="text-xs text-red-500">Gelöschter Auftrag</span>';
+                     }
+                     
+                       return `
+                            <tr class="border-b hover:bg-gray-50 text-left">
+                                <td class="p-3">
+                                    ${expense.description}
+                                    ${jobInfo} 
+                                </td>
+                                <td class="p-3">${expense.type}</td>
+                                <td class="p-3">${ERPApp.formatDate(expense.date)}</td>
+                                <td class="p-3 text-center">${receiptIcon}</td>
+                                <td class="p-3 text-right text-red-600 font-bold">-${expense.amount.toFixed(2)} €</td>
+                            </tr>
+                       `;
+                 }).join('') || '<tr><td colspan="5" class="text-center p-8 text-gray-500">Keine Ausgaben gefunden.</td></tr>';
+                 lucide.createIcons();
+            },
+
+            // ----------------------------------------------------------------------
+            // 9. UI/UX Functions - (Unverändert)
+            // ----------------------------------------------------------------------
+            toggleSidebar() {
+                const sidebar = document.getElementById('sidebar');
+                const overlay = document.getElementById('sidebar-overlay');
+                sidebar.classList.toggle('-translate-x-full');
+                overlay.classList.toggle('hidden');
+            },
+
+            changeTab(tabName) {
+                const tabs = ['invoice', 'invoices-list', 'expenses', 'dashboard', 'settings', 'mitarbeiter', 'clients', 'jobs'];
+                tabs.forEach(tab => {
+                    const view = document.getElementById(`${tab}-view`);
+                    const tabBtn = document.getElementById(`tab-${tab}`);
+                    if(view) view.classList.add('hidden');
+                    if(tabBtn) {
+                        tabBtn.classList.remove('active');
+                        tabBtn.classList.add('text-gray-300'); // Standardfarbe für inaktive Tabs
+                    }
+                });
+                
+                document.getElementById(`${tabName}-view`).classList.remove('hidden');
+                const activeTabBtn = document.getElementById(`tab-${tabName}`);
+                if(activeTabBtn) {
+                    activeTabBtn.classList.add('active');
+                    activeTabBtn.classList.remove('text-gray-300'); // Entferne Standardfarbe
+                }
+                
+                // Schließe Sidebar auf Mobile nach Tab-Wechsel
+                const sidebar = document.getElementById('sidebar');
+                if (!sidebar.classList.contains('-translate-x-full') && sidebar.classList.contains('lg:translate-x-0')) {
+                   // Optional: Schließe nur auf Mobile?
+                } else if (!sidebar.classList.contains('-translate-x-full') && !sidebar.classList.contains('lg:translate-x-0')) {
+                     ERPApp.toggleSidebar(); // Schließe, wenn offen auf Mobile
+                }
+
+
+                if (tabName === 'dashboard') ERPApp.updateReports(ERPApp.invoices, ERPApp.currentExpenses);
+                if (tabName === 'settings') ERPApp.populateSettingsForm();
+            },
+
+
+            showNotification(message, type = 'info') {
+                const notif = document.getElementById('notification');
+                notif.textContent = message;
+                notif.className = 'fixed top-5 left-1/2 transform -translate-x-1/2 p-3 rounded-xl shadow-2xl z-[110] text-white transition-opacity duration-300';
+                if (type === 'success') { notif.classList.add('bg-green-600'); } 
+                else if (type === 'error') { notif.classList.add('bg-red-600'); } 
+                else { notif.classList.add('bg-blue-600'); }
+                notif.classList.remove('opacity-0');
+                notif.classList.add('opacity-100');
+                setTimeout(() => {
+                    notif.classList.remove('opacity-100');
+                    notif.classList.add('opacity-0');
+                }, 3000);
+            },
+            
+            formatDate: (timestamp) => {
+                const date = new Date(timestamp);
+                return date.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' });
+            },
+
+            updateReports(invoices, expenses) {
+                 const totalIncome = invoices.reduce((acc, inv) => acc + (inv.totalBrutto - inv.amountDue), 0); 
+                 const totalExpense = expenses.reduce((acc, exp) => acc + exp.amount, 0);
+                 const totalPending = invoices.reduce((acc, inv) => acc + inv.amountDue, 0); 
+                 const netProfit = totalIncome - totalExpense;
+
+                 document.getElementById('report-income').textContent = `${totalIncome.toFixed(2)} €`;
+                 document.getElementById('report-expense').textContent = `${totalExpense.toFixed(2)} €`;
+                 document.getElementById('report-profit').textContent = `${netProfit.toFixed(2)} €`;
+                 document.getElementById('report-pending').textContent = `${totalPending.toFixed(2)} €`;
+            },
+
+            renderInvoicesList(invoices) {
+                const container = document.getElementById('invoices-list-body');
+                container.innerHTML = invoices.map(invoice => {
+                    const isPaid = invoice.amountDue <= 0;
+                    const statusClass = isPaid ? 'badge-success' : 'badge-danger';
+                    const previewFunction = `ERPApp.previewInvoice('${invoice.id}')`;
+
+                    let jobInfo = '';
+                    if (invoice.jobId) {
+                        const job = ERPApp.jobs.find(j => j.id === invoice.jobId);
+                        jobInfo = job ? `<span class="text-xs text-gray-500 block">Auftrag: ${job.title}</span>` : '';
+                    }
+
+                    return `
+                        <tr class="border-b hover:bg-gray-50 text-left">
+                            <td class="p-3 font-semibold text-blue-800">${invoice.invoiceNumber}</td>
+                            <td class="p-3">
+                                ${invoice.clientName}
+                                ${invoice.clientCustomerNumber ? `<span class="block text-xs text-blue-600">Kundennr.: ${invoice.clientCustomerNumber}</span>` : ''}
+                                ${jobInfo}
+                            </td>
+                            <td class="p-3 text-sm">${ERPApp.formatDate(invoice.invoiceDate)}</td>
+                            <td class="p-3 text-right">
+                               <span class="font-bold text-lg">${invoice.totalBrutto.toFixed(2)} €</span>
+                               <br><span class="text-xs ${isPaid ? 'text-green-500' : 'text-red-500'} font-medium">Offen: ${invoice.amountDue.toFixed(2)} €</span>
+                            </td>
+                            <td class="p-3"><span class="px-3 py-1 rounded-full text-xs font-medium ${statusClass}">${isPaid ? 'Bezahlt' : 'Offen'}</span></td>
+                            <td class="p-3 flex space-x-3 justify-end items-center">
+                                <button onclick="${previewFunction}" class="text-blue-500 hover:text-blue-700 text-xs font-semibold flex items-center">
+                                    <i data-lucide="file-text" class="w-4 h-4 mr-1"></i> Vorschau
+                                </button>
+                                <button onclick="ERPApp.showNotification('Funktion nicht implementiert.')" class="text-orange-500 hover:text-orange-700 text-xs font-semibold">Zahlung+</button>
+                            </td>
+                        </tr>
+                    `;
+                }).join('') || '<tr><td colspan="6" class="text-center p-8 text-gray-500">Keine Rechnungen gefunden.</td></tr>';
+                lucide.createIcons();
+            },
+
+            // ----------------------------------------------------------------------
+            // 10. Service Modal - (Unverändert)
+            // ----------------------------------------------------------------------
+            openServiceModal() {
+                document.getElementById('service-modal').classList.remove('hidden');
+                ERPApp.renderServiceModalList();
+            },
+            closeServiceModal() {
+                 document.getElementById('service-modal').classList.add('hidden');
+            },
+            renderServiceModalList() {
+                const container = document.getElementById('service-modal-list');
+                let html = '';
+
+                html += '<h3 class="text-xl font-bold mt-4 mb-3 border-b pb-1 text-blue-700">Möbel nach Zimmern</h3>';
+                const roomData = serviceCatalog.room_items.reduce((acc, item) => {
+                    if (!acc[item.room]) acc[item.room] = [];
+                    acc[item.room].push(item);
+                    return acc;
+                }, {});
+
+                Object.keys(roomData).forEach(room => {
+                    html += `<h4 class="font-semibold text-lg mt-3 text-gray-800 flex items-center"><i data-lucide="home" class="w-4 h-4 mr-2 text-blue-500"></i>${room}</h4>`;
+                    roomData[room].forEach(service => {
+                         html += ERPApp.getServiceCard(service, true);
+                    });
+                });
+                
+                const otherCategories = { 
+                    general_services: 'Allgemeine Dienste', 
+                    labor_and_assembly: 'Montage & Arbeitskraft', 
+                    packaging_materials: 'Verpackungsmaterial' 
+                };
+                Object.keys(otherCategories).forEach(key => {
+                    html += `<h3 class="text-xl font-bold mt-6 mb-3 border-b pb-1 text-green-700">${otherCategories[key]}</h3>`;
+                    serviceCatalog[key].forEach(service => {
+                        html += ERPApp.getServiceCard(service, false);
+                    });
+                });
+                
+                container.innerHTML = html;
+                lucide.createIcons();
+            },
+            getServiceCard(service, isRoomItem) {
+                let finalPrice = service.price;
+                let description = service.unit || 'Pauschale';
+                let icon = 'box';
+
+                if (isRoomItem) {
+                    finalPrice = service.transportPrice + service.packagingPrice;
+                    description = `(Transport: ${service.transportPrice.toFixed(2)} € + Verpackung: ${service.packagingPrice.toFixed(2)} €)`;
+                    icon = 'archive';
+                }
+                
+                const addItemData = isRoomItem ? 
+                    { id: service.id, name: `${service.room}: ${service.name}`, price: finalPrice, unit: service.unit, description } : 
+                    { id: service.id, name: service.name, price: service.price, unit: service.unit, description: '' };
+
+                return `
+                    <div class="flex justify-between items-center bg-white p-3 rounded-lg shadow-sm mb-2 hover:shadow-lg hover:bg-blue-50 transition duration-200 cursor-pointer border border-gray-200" 
+                         onclick="ERPApp.addItemToInvoice(${JSON.stringify(addItemData).replace(/'/g, '&#39;').replace(/"/g, "'")})">
+                        <div class="flex flex-col">
+                            <span class="font-semibold text-gray-800 flex items-center">
+                                <i data-lucide="${icon}" class="w-4 h-4 mr-2 text-orange-500"></i>${service.name}
+                            </span>
+                            <span class="text-xs text-gray-500">${description}</span>
+                        </div>
+                        <span class="text-blue-600 font-bold text-lg">${finalPrice.toFixed(2)} €</span>
+                    </div>
+                `;
+            },
+            
+            // --- EINSTELLUNGEN (SETTINGS) (Angepasst) ---
+            async loadCompanySettings() {
+                if (!isAuthReady) return;
+                const settingsDocRef = doc(db, getCompanySettingsPath());
+                
+                try {
+                    const docSnap = await getDoc(settingsDocRef);
+                    if (docSnap.exists()) {
+                        ERPApp.companySettings = { ...ERPApp.companySettings, ...docSnap.data() };
+                        console.log("Firmeneinstellungen geladen:", ERPApp.companySettings);
+                    } else {
+                        // Dokument existiert nicht, erstelle es mit Standardwerten
+                        console.log("Keine Einstellungen gefunden, erstelle Standard...");
+                        await setDoc(settingsDocRef, ERPApp.companySettings);
+                    }
+                    
+                    // NEU: Stelle sicher, dass das Feld für die Rechnungsnummer existiert
+                    if (!ERPApp.companySettings.nextInvoiceNumberString) {
+                        ERPApp.companySettings.nextInvoiceNumberString = "UM-2025-01";
+                    }
+                    
+                } catch (e) {
+                    console.error("Fehler beim Laden der Firmeneinstellungen:", e);
+                }
+                
+                // Fülle das Formular, falls die Ansicht bereits aktiv ist
+                if (!document.getElementById('settings-view').classList.contains('hidden')) {
+                    ERPApp.populateSettingsForm();
+                }
+            },
+            
+            populateSettingsForm() {
+                document.getElementById('setting-company-name').value = ERPApp.companySettings.companyName;
+                document.getElementById('setting-owner-name').value = ERPApp.companySettings.ownerName;
+                document.getElementById('setting-address').value = ERPApp.companySettings.address;
+                document.getElementById('setting-phone').value = ERPApp.companySettings.phone;
+                document.getElementById('setting-email').value = ERPApp.companySettings.email;
+                document.getElementById('setting-tax-id').value = ERPApp.companySettings.taxId;
+                // NEU: Fülle Rechnungsnummer
+                document.getElementById('setting-invoice-number').value = ERPApp.companySettings.nextInvoiceNumberString; 
+            },
+            
+            async saveCompanySettings() {
+                const settingsDocRef = doc(db, getCompanySettingsPath());
+                
+                // Lese Daten aus Formular und update State
+                ERPApp.companySettings.companyName = document.getElementById('setting-company-name').value;
+                ERPApp.companySettings.ownerName = document.getElementById('setting-owner-name').value;
+                ERPApp.companySettings.address = document.getElementById('setting-address').value;
+                ERPApp.companySettings.phone = document.getElementById('setting-phone').value;
+                ERPApp.companySettings.email = document.getElementById('setting-email').value;
+                ERPApp.companySettings.taxId = document.getElementById('setting-tax-id').value;
+                // NEU: Speichere Rechnungsnummer
+                ERPApp.companySettings.nextInvoiceNumberString = document.getElementById('setting-invoice-number').value; 
+                
+                try {
+                    // Speichere das ganze Objekt in Firestore
+                    await setDoc(settingsDocRef, ERPApp.companySettings, { merge: true });
+                    ERPApp.showNotification("Einstellungen erfolgreich gespeichert.", 'success');
+                } catch (e) {
+                    console.error("Fehler beim Speichern der Einstellungen:", e);
+                    ERPApp.showNotification("Fehler beim Speichern der Einstellungen.", 'error');
+                }
+            },
+        };
+
+        // ----------------------------------------------------------------------
+        // 11. Initialisierung & Signature Pad - (Unverändert)
+        // ----------------------------------------------------------------------
+        
+        window.onload = () => {
+            ERPApp.initFirebase(); 
+            
+            const clientCanvas = document.getElementById('client-signature-canvas');
+            const companyCanvas = document.getElementById('company-signature-canvas');
+            
+            if (clientCanvas && companyCanvas) {
+                ERPApp.clientSigPad = ERPApp.initSigPad(clientCanvas);
+                ERPApp.companySigPad = ERPApp.initSigPad(companyCanvas);
+            }
+            
+            document.getElementById('discount-percentage')?.addEventListener('input', ERPApp.calculateInvoiceTotal);
+            document.getElementById('initial-payment')?.addEventListener('input', ERPApp.calculateInvoiceTotal);
+            document.getElementById('job-select-for-invoice')?.addEventListener('change', ERPApp.updateClientDisplayForInvoice);
+            
+            window.ERPApp = ERPApp;
+            lucide.createIcons();
+        };
+
+        ERPApp.initSigPad = (canvas) => {
+            let isDrawing = false;
+            let lastX = 0;
+            let lastY = 0;
+            const ctx = canvas.getContext('2d');
+            ctx.strokeStyle = '#000000';
+            ctx.lineJoin = 'round';
+            ctx.lineCap = 'round';
+            ctx.lineWidth = 3;
+
+            const resizeCanvas = () => {
+                 setTimeout(() => {
+                     if (canvas.parentElement) {
+                         const rect = canvas.parentElement.getBoundingClientRect();
+                         if (rect.width > 0) {
+                             canvas.width = rect.width;
+                         }
+                         canvas.height = 100;
+                         ctx.strokeStyle = '#000000';
+                         ctx.lineJoin = 'round';
+                         ctx.lineCap = 'round';
+                         ctx.lineWidth = 3;
+                     }
+                 }, 50);
+            }
+            
+            const getPos = (e) => {
+                const rect = canvas.getBoundingClientRect();
+                let clientX, clientY;
+
+                if (e.touches && e.touches.length > 0) {
+                     clientX = e.touches[0].clientX;
+                     clientY = e.touches[0].clientY;
+                } else {
+                     clientX = e.clientX;
+                     clientY = e.clientY;
+                }
+                return { x: clientX - rect.left, y: clientY - rect.top };
+            };
+
+            const draw = (e) => {
+                if (!isDrawing) return;
+                e.preventDefault(); 
+                
+                const { x, y } = getPos(e);
+                ctx.beginPath();
+                ctx.moveTo(lastX, lastY);
+                ctx.lineTo(x, y);
+                ctx.stroke();
+                [lastX, lastY] = [x, y];
+            };
+
+            const startDrawing = (e) => {
+                isDrawing = true;
+                [lastX, lastY] = [getPos(e).x, getPos(e).y];
+            };
+
+            const stopDrawing = () => {
+                isDrawing = false;
+            };
+
+            canvas.addEventListener('mousedown', startDrawing);
+            canvas.addEventListener('mousemove', draw);
+            canvas.addEventListener('mouseup', stopDrawing);
+            canvas.addEventListener('mouseout', stopDrawing);
+
+            canvas.addEventListener('touchstart', startDrawing, { passive: false });
+            canvas.addEventListener('touchmove', draw, { passive: false });
+            canvas.addEventListener('touchend', stopDrawing, { passive: false });
+            
+            resizeCanvas();
+
+            return {
+                toDataURL: () => canvas.toDataURL(),
+                clear: () => {
+                    ctx.clearRect(0, 0, canvas.width, canvas.height);
+                    resizeCanvas();
+                },
+                isEmpty: () => {
+                    const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+                    for (let i = 0; i < data.length; i += 4) {
+                        if (data[i + 3] !== 0) { return false; } 
+                    }
+                    return true;
+                },
+                resize: resizeCanvas
+            };
+        };
+
+        window.addEventListener('resize', () => {
+             if (ERPApp.clientSigPad) ERPApp.clientSigPad.resize();
+             if (ERPApp.companySigPad) ERPApp.companySigPad.resize();
+        });
+
+    </script>
+</head>
+<body class="bg-gray-100">
+
+    <div id="loading-overlay" class="fixed inset-0 bg-gray-900 bg-opacity-90 flex items-center justify-center z-[100]">
+        <div class="text-white text-center p-8 bg-gray-800 rounded-lg shadow-xl">
+            <i data-lucide="loader-circle" class="w-8 h-8 animate-spin mx-auto mb-3 text-blue-400"></i>
+            <p id="loading-message" class="text-xl font-semibold">ERP-System wird geladen...</p>
+        </div>
+    </div>
+    <div id="notification" class="fixed top-5 left-1/2 transform -translate-x-1/2 p-3 rounded-xl shadow-2xl z-[110] text-white opacity-0 transition-opacity duration-300"></div>
+
+
+    <div id="main-app-view">
+        <div class="flex min-h-screen">
+
+            <nav id="sidebar" class="fixed top-0 left-0 h-full w-64 z-40 transform -translate-x-full lg:translate-x-0 sidebar flex flex-col sidebar-bg">
+                <div class="p-6 border-b border-gray-700">
+                    <h2 class="text-2xl font-extrabold text-white flex items-center">
+                        <i data-lucide="truck" class="mr-3 w-6 h-6 text-blue-400"></i>
+                        ALAHMAD Logistik
+                    </h2>
+                    <p class="text-xs mt-1 text-gray-400">Inh. Rabih Alahmad</p>
+                </div>
+                
+                <div class="flex-grow p-4 space-y-2">
+                    <a id="tab-dashboard" onclick="ERPApp.changeTab('dashboard')" class="sidebar-item p-3 rounded-lg flex items-center text-sm font-medium cursor-pointer">
+                        <i data-lucide="bar-chart-3" class="w-5 h-5 mr-3"></i>Dashboard
+                    </a>
+                    <a id="tab-jobs" onclick="ERPApp.changeTab('jobs')" class="sidebar-item p-3 rounded-lg flex items-center text-sm font-medium cursor-pointer">
+                        <i data-lucide="briefcase" class="w-5 h-5 mr-3"></i>Auftragsverwaltung
+                    </a>
+                    <a id="tab-clients" onclick="ERPApp.changeTab('clients')" class="sidebar-item p-3 rounded-lg flex items-center text-sm font-medium cursor-pointer">
+                        <i data-lucide="contact" class="w-5 h-5 mr-3"></i>Kunden (CRM)
+                    </a>
+                    
+                    <hr class="border-gray-700 my-2">
+                    
+                    <a id="tab-invoice" onclick="ERPApp.changeTab('invoice')" class="sidebar-item p-3 rounded-lg flex items-center text-sm font-medium cursor-pointer">
+                        <i data-lucide="file-plus" class="w-5 h-5 mr-3"></i>Neue Rechnung
+                    </a>
+                    <a id="tab-invoices-list" onclick="ERPApp.changeTab('invoices-list')" class="sidebar-item p-3 rounded-lg flex items-center text-sm font-medium cursor-pointer">
+                        <i data-lucide="wallet" class="w-5 h-5 mr-3"></i>Rechnungen
+                    </a>
+                    <a id="tab-expenses" onclick="ERPApp.changeTab('expenses')" class="sidebar-item p-3 rounded-lg flex items-center text-sm font-medium cursor-pointer">
+                        <i data-lucide="trending-down" class="w-5 h-5 mr-3"></i>Ausgaben
+                    </a>
+                    <a id="tab-mitarbeiter" onclick="ERPApp.changeTab('mitarbeiter')" class="sidebar-item p-3 rounded-lg flex items-center text-sm font-medium cursor-pointer">
+                        <i data-lucide="users" class="w-5 h-5 mr-3"></i>Mitarbeiter
+                    </a>
+                </div>
+                
+                <div class="p-4 border-t border-gray-700">
+                    <a id="tab-settings" onclick="ERPApp.changeTab('settings')" class="sidebar-item p-3 rounded-lg flex items-center text-sm font-medium cursor-pointer">
+                        <i data-lucide="settings" class="w-5 h-5 mr-3"></i>Einstellungen
+                    </a>
+                </div>
+            </nav>
+
+            <div class="flex-grow lg:ml-64 p-4 sm:p-8">
+                <header class="sticky top-0 bg-gray-100/80 backdrop-blur-sm z-20 pb-4 lg:hidden flex justify-between items-center -mx-4 px-4 pt-4">
+                    <button onclick="ERPApp.toggleSidebar()" class="p-2 rounded-lg bg-gray-200 hover:bg-gray-300">
+                        <i data-lucide="menu" class="w-6 h-6 text-gray-800"></i>
+                    </button>
+                    <span class="ml-3 text-xl font-bold text-blue-800">ALAHMAD Logistik</span>
+                </header>
+                
+                <div id="sidebar-overlay" onclick="ERPApp.toggleSidebar()" class="fixed inset-0 bg-black bg-opacity-50 z-30 hidden lg:hidden"></div>
+
+                <div id="dashboard-view" class="hidden">
+                    <h1 class="text-3xl font-bold mb-6 text-gray-800">Dashboard-Übersicht</h1>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+                        <div class="dashboard-card p-6 relative">
+                            <i data-lucide="check-circle" class="w-10 h-10 text-green-500 absolute top-4 right-4 opacity-10"></i>
+                            <p class="text-sm font-medium text-gray-500">Einnahmen (Verbucht)</p>
+                            <p class="text-3xl font-extrabold text-green-700 mt-1" id="report-income">0.00 €</p>
+                        </div>
+                        <div class="dashboard-card p-6 relative">
+                            <i data-lucide="arrow-down-circle" class="w-10 h-10 text-red-500 absolute top-4 right-4 opacity-10"></i>
+                            <p class="text-sm font-medium text-gray-500">Gesamtausgaben</p>
+                            <p class="text-3xl font-extrabold text-red-700 mt-1" id="report-expense">0.00 €</p>
+                        </div>
+                        <div class="dashboard-card p-6 relative">
+                            <i data-lucide="trending-up" class="w-10 h-10 text-blue-800 absolute top-4 right-4 opacity-10"></i>
+                            <p class="text-sm font-medium text-gray-500">Nettogewinn</p>
+                            <p class="text-3xl font-extrabold text-blue-800 mt-1" id="report-profit">0.00 €</p>
+                        </div>
+                        <div class="dashboard-card p-6 relative">
+                            <i data-lucide="alert-circle" class="w-10 h-10 text-yellow-500 absolute top-4 right-4 opacity-10"></i>
+                            <p class="text-sm font-medium text-gray-500">Offene Posten</p>
+                            <p class="text-3xl font-extrabold text-yellow-700 mt-1" id="report-pending">0.00 €</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="jobs-view" class="hidden">
+                    <h1 class="text-3xl font-bold mb-6 text-gray-800">Auftragsverwaltung</h1>
+                    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                        <div class="lg:col-span-1 card p-6 border-t-4 border-purple-500 h-fit">
+                            <h3 class="text-xl font-bold mb-4 flex items-center"><i data-lucide="briefcase" class="w-5 h-5 mr-2 text-purple-500"></i>Neuer Auftrag</h3>
+                            <div class="space-y-4">
+                                <label for="job-title-new" class="font-medium">Auftragstitel (z.B. Umzug Müller)</label>
+                                <input type="text" id="job-title-new" placeholder="Auftragstitel" class="input-style w-full" required>
+                                
+                                <label for="job-client-select" class="font-medium">Zugehöriger Kunde</label>
+                                <select id="job-client-select" class="input-style w-full">
+                                    <option value="">-- Kunden laden... --</option>
+                                </select>
+                                
+                                <label for="job-date-new" class="font-medium">Auftragsdatum</label>
+                                <input type="date" id="job-date-new" class="input-style w-full" required>
+                                
+                                <button onclick="ERPApp.saveNewJob()" class="btn-primary w-full bg-purple-600 hover:bg-purple-700">
+                                    <i data-lucide="plus" class="w-5 h-5 mr-2"></i> Auftrag speichern
+                                </button>
+                            </div>
+                        </div>
+                        <div class="lg:col-span-2 card p-6 overflow-x-auto">
+                            <h3 class="text-xl font-bold mb-4 border-b pb-2">Auftragsliste</h3>
+                            <table class="min-w-full divide-y divide-gray-200">
+                                <thead class="bg-gray-50">
+                                    <tr class="text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                        <th class="p-3">Titel</th>
+                                        <th class="p-3">Kunde</th>
+                                        <th class="p-3">Datum</th>
+                                        <th class="p-3">Status</th>
+                                        <th class="p-3 text-right">Aktionen</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="jobs-list-body" class="bg-white divide-y divide-gray-200">
+                                    <tr><td colspan="5" class="text-center p-8 text-gray-500">Lade Aufträge...</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="clients-view" class="hidden">
+                    <h1 class="text-3xl font-bold mb-6 text-gray-800">Kundenverwaltung (CRM)</h1>
+                    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                        <div class="lg:col-span-1 card p-6 border-t-4 border-blue-500 h-fit">
+                            <h3 class="text-xl font-bold mb-4 flex items-center"><i data-lucide="user-plus" class="w-5 h-5 mr-2 text-blue-500"></i>Neuen Kunden anlegen</h3>
+                            <div class="space-y-4">
+                                <input type="text" id="client-name-new" placeholder="Kundenname (erforderlich)" class="input-style w-full" required>
+                                <input type="text" id="client-address-new" placeholder="Kundenadresse (erforderlich)" class="input-style w-full" required>
+                                <input type="text" id="client-number-new" placeholder="Kundennummer (optional)" class="input-style w-full">
+                                <input type="tel" id="client-phone-new" placeholder="Telefonnummer" class="input-style w-full">
+                                <input type="email" id="client-email-new" placeholder="E-Mail" class="input-style w-full">
+                                <button onclick="ERPApp.saveNewClient()" class="btn-primary w-full">
+                                    <i data-lucide="save" class="w-5 h-5 mr-2"></i> Kunde speichern
+                                </button>
+                            </div>
+                        </div>
+                        <div class="lg:col-span-2 card p-6 overflow-x-auto">
+                            <h3 class="text-xl font-bold mb-4 border-b pb-2">Kundenliste</h3>
+                            <table class="min-w-full divide-y divide-gray-200">
+                                <thead class="bg-gray-50">
+                                    <tr class="text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                        <th class="p-3">Name/Kundennr.</th> <th class="p-3">Adresse</th>
+                                        <th class="p-3">Telefon</th>
+                                        <th class="p-3">E-Mail</th>
+                                        <th class="p-3 text-right">Aktionen</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="clients-list-body" class="bg-white divide-y divide-gray-200">
+                                    <tr><td colspan="5" class="text-center p-8 text-gray-500">Lade Kunden...</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="invoice-view" class="hidden">
+                    <h1 class="text-3xl font-bold mb-6 text-gray-800">Neue Rechnung erstellen</h1>
+                    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                        
+                        <div class="lg:col-span-2 space-y-6">
+                            
+                            <div class="card p-6 border-t-4 border-blue-500">
+                                <h2 class="text-xl font-bold mb-4 text-gray-700 flex items-center"><i data-lucide="briefcase" class="w-5 h-5 mr-2"></i>1. Auftrag auswählen (Kunde)</h2>
+                                <label for="job-select-for-invoice" class="font-medium">Auftrag für Rechnung auswählen</label>
+                                <select id="job-select-for-invoice" class="input-style w-full mt-2">
+                                    <option value="">-- Aufträge laden... --</option>
+                                </select>
+                                <div id="client-details-display" class="mt-4 p-4 bg-gray-50 rounded-lg border">
+                                    <p class="text-gray-500 text-sm">Bitte einen Auftrag auswählen, um Kundendaten zu laden.</p>
+                                </div>
+                            </div>
+
+                            <div class="card p-6">
+                                <h2 class="text-xl font-bold mb-4 text-gray-700 flex justify-between items-center border-b pb-2">
+                                    <span class="flex items-center"><i data-lucide="clipboard-list" class="w-5 h-5 mr-2"></i>2. Leistungsübersicht</span>
+                                    <button onclick="ERPApp.openServiceModal()" class="btn-primary text-sm p-2 flex items-center bg-green-600 hover:bg-green-700">
+                                        <i data-lucide="plus" class="w-4 h-4 mr-1"></i> Leistung hinzufügen
+                                    </button>
+                                </h2>
+                                
+                                <div class="flex items-center justify-between p-3 bg-gray-100 font-bold text-gray-700 text-xs rounded-t-lg">
+                                    <span class="w-1/3 text-left">Beschreibung</span>
+                                    <span class="w-1/4">Preis (€/Einheit)</span>
+                                    <span class="w-1/4 text-center">Menge</span>
+                                    <span class="w-1/4 text-right">Gesamt (Netto)</span>
+                                </div>
+                                <div id="invoice-items-container" class="bg-gray-50 rounded-b-lg border border-gray-200">
+                                    <p class="text-gray-500 text-center p-6">Keine Leistungen hinzugefügt.</p>
+                                </div>
+                            </div>
+
+                            <div class="card p-6 grid grid-cols-1 md:grid-cols-2 gap-6">
+                                <div>
+                                    <h3 class="font-bold text-gray-700 mb-2">Unterschrift des Kunden</h3>
+                                    <canvas id="client-signature-canvas" width="300" height="100" class="signature-pad w-full"></canvas>
+                                    <button onclick="ERPApp.clientSigPad.clear()" class="text-red-500 hover:text-red-700 text-xs mt-1">Löschen</button>
+                                </div>
+                                <div>
+                                    <h3 class="font-bold text-gray-700 mb-2">Unterschrift Firma</h3>
+                                    <canvas id="company-signature-canvas" width="300" height="100" class="signature-pad w-full"></canvas>
+                                    <button onclick="ERPApp.companySigPad.clear()" class="text-red-500 hover:text-red-700 text-xs mt-1">Löschen</button>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="lg:col-span-1">
+                            <div class="sticky top-4 card p-6 border-t-4 border-red-600">
+                                <h2 class="text-xl font-bold mb-4 text-gray-800 flex items-center"><i data-lucide="receipt" class="w-5 h-5 mr-2"></i>3. Rechnungsübersicht</h2>
+
+                                <div class="space-y-3 pt-3">
+                                    <div class="flex justify-between text-gray-600">
+                                        <span class="text-sm">Rabatt (%):</span>
+                                        <input type="number" id="discount-percentage" value="0" min="0" max="100" class="input-style w-16 text-right text-sm p-1">
+                                    </div>
+                                    <div class="flex justify-between border-t pt-2">
+                                        <span class="font-bold">Nettobetrag:</span>
+                                        <span class="font-extrabold text-lg" id="invoice-net-total">0.00 €</span>
+                                    </div>
+                                    <div class="flex justify-between text-red-600">
+                                        <span class="text-sm">MwSt (<span id="invoice-vat-rate">19</span>%):</span>
+                                        <span class="font-medium" id="invoice-vat-amount">0.00 €</span>
+                                    </div>
+                                    <div class="flex justify-between pt-3 border-t-2 border-dashed">
+                                        <span class="text-xl font-bold text-gray-800">GESAMT BRUTTO:</span>
+                                        <span class="text-2xl font-extrabold text-blue-700" id="invoice-total-brutto">0.00 €</span>
+                                    </div>
+                                </div>
+                                
+                                <div class="mt-6 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                                    <label for="initial-payment" class="block text-sm font-bold text-gray-700 mb-1">Erhaltene Anzahlung (€)</label>
+                                    <input type="number" id="initial-payment" value="0.00" min="0.00" step="0.01" class="input-style w-full text-center text-lg font-mono">
+                                </div>
+
+                                <div class="mt-4 flex justify-between items-center p-3 bg-gray-100 rounded-lg flex-nowrap gap-2">
+                                    <span class="text-xl font-bold text-nowrap">OFFENER BETRAG:</span>
+                                    <span class="text-2xl font-extrabold text-red-600 text-nowrap" id="invoice-amount-due">0.00 €</span>
+                                </div>
+                                <div class="text-right mt-2">
+                                    <span id="due-status" class="badge-danger text-sm px-3 py-1 rounded-full font-bold">Offen</span>
+                                </div>
+
+                                <div class="mt-6">
+                                    <button onclick="ERPApp.saveInvoice()" class="btn-primary w-full text-lg flex items-center justify-center">
+                                        <i data-lucide="save" class="w-5 h-5 mr-2"></i> Rechnung SPEICHERN & Vorschau
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div id="invoices-list-view" class="hidden">
+                    <h1 class="text-3xl font-bold mb-6 text-gray-800">Rechnungen & Zahlungen</h1>
+                    <div class="card overflow-x-auto">
+                        <table class="min-w-full divide-y divide-gray-200">
+                            <thead class="bg-gray-50">
+                                <tr class="text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                    <th class="p-3">Rechnungs-Nr.</th>
+                                    <th class="p-3">Kunde/Auftrag</th>
+                                    <th class="p-3">Datum</th>
+                                    <th class="p-3 text-right">Gesamt/Offen</th>
+                                    <th class="p-3">Status</th>
+                                    <th class="p-3 text-right">Aktionen</th>
+                                </tr>
+                            </thead>
+                            <tbody id="invoices-list-body" class="bg-white divide-y divide-gray-200">
+                                <tr><td colspan="6" class="text-center p-8 text-gray-500"><i data-lucide="cloud-off" class="inline w-6 h-6 mr-2"></i>Lade Rechnungen...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <div id="expenses-view" class="hidden">
+                    <h1 class="text-3xl font-bold mb-6 text-gray-800">Ausgaben erfassen</h1>
+                    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                        <div class="lg:col-span-1 card p-6 border-t-4 border-red-500 h-fit">
+                            <h3 class="text-xl font-bold mb-4 flex items-center"><i data-lucide="fuel" class="w-5 h-5 mr-2 text-red-500"></i>Neue Ausgabe registrieren</h3>
+                            <div class="space-y-4">
+                                <select id="expense-type" class="input-style w-full">
+                                    <option value="Diesel/Treibstoff">Diesel/Treibstoff</option>
+                                    <option value="Allgemein">Allgemeiner Aufwand (Einkauf, Miete etc.)</option>
+                                    <option value="Personal">Personal (Spesen)</option>
+                                </select>
+                                <input type="text" id="expense-description" placeholder="Beschreibung der Ausgabe" class="input-style w-full" required>
+                                <input type="number" id="expense-amount" placeholder="Betrag (€)" class="input-style w-full" required min="0.01" step="0.01">
+                                
+                                <div class="border-t pt-4">
+                                    <label for="job-select-for-expense" class="block text-sm font-medium text-gray-700 mb-1">Auftrag zuordnen (optional)</label>
+                                    <select id="job-select-for-expense" class="input-style w-full">
+                                        <option value="">-- Aufträge laden... --</option>
+                                    </select>
+                                </div>
+                                
+                                <div class="border-t pt-4">
+                                    <label for="receipt-image-url" class="block text-sm font-medium text-gray-700 mb-1 flex items-center"><i data-lucide="scan" class="w-4 h-4 mr-1"></i> Beleg-Link (Scan-Simulation)</label>
+                                    <input type="text" id="receipt-image-url" placeholder="URL des gescannten Belegs" class="input-style w-full text-xs">
+                                </div>
+                                
+                                <button onclick="ERPApp.saveExpense()" class="btn-primary w-full bg-red-600 hover:bg-red-700">
+                                    <i data-lucide="minus-circle" class="w-5 h-5 mr-2"></i> Ausgabe speichern
+                                </button>
+                            </div>
+                        </div>
+                        <div class="lg:col-span-2 card p-6 overflow-x-auto">
+                            <h3 class="text-xl font-bold mb-4 border-b pb-2">Ausgaben-Journal</h3>
+                            <table class="min-w-full divide-y divide-gray-200">
+                                <thead class="bg-gray-50">
+                                    <tr class="text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                        <th class="p-3">Beschreibung/Auftrag</th>
+                                        <th class="p-3">Typ</th>
+                                        <th class="p-3">Datum</th>
+                                        <th class="p-3 text-center">Beleg</th>
+                                        <th class="p-3 text-right">Betrag</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="expenses-list-body" class="bg-white divide-y divide-gray-200">
+                                    <tr><td colspan="5" class="text-center p-8 text-gray-500">Lade Ausgaben...</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="mitarbeiter-view" class="hidden">
+                    <h1 class="text-3xl font-bold mb-6 text-gray-800">Mitarbeiterverwaltung</h1>
+                    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                        <div class="lg:col-span-1 card p-6 border-t-4 border-orange-500 h-fit">
+                            <h3 class="text-xl font-bold mb-4 flex items-center"><i data-lucide="user-plus" class="w-5 h-5 mr-2 text-orange-500"></i>Neuen Mitarbeiter anlegen</h3>
+                            <input type="text" id="new-worker-name" placeholder="Vollständiger Name" class="input-style w-full mb-4" required>
+                            <button onclick="ERPApp.saveNewWorker()" class="btn-primary w-full bg-orange-600 hover:bg-orange-700">
+                                Mitarbeiter speichern
+                            </button>
+                        </div>
+                        <div class="lg:col-span-2">
+                            <h3 class="text-xl font-bold mb-4 text-gray-700 border-b pb-2">Mitarbeiter-Liste & Auszahlungen</h3>
+                            <div id="workers-list-container" class="space-y-4">
+                                <p class="text-center p-8 text-gray-500">Lade Mitarbeiter...</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div id="settings-view" class="hidden">
+                    <h1 class="text-3xl font-bold mb-6 text-gray-800">Unternehmenseinstellungen</h1>
+                    <div class="card p-6 border-t-4 border-gray-500 max-w-2xl mx-auto">
+                        
+                        <div class="space-y-4">
+                            <div>
+                                <h3 class="text-xl font-bold mb-2">Firmendaten</h3>
+                                <label for="setting-company-name" class="block text-sm font-medium text-gray-700">Firmenname</label>
+                                <input type="text" id="setting-company-name" class="input-style w-full mt-1">
+                            </div>
+                            <div>
+                                <label for="setting-owner-name" class="block text-sm font-medium text-gray-700">Inhaber</label>
+                                <input type="text" id="setting-owner-name" class="input-style w-full mt-1">
+                            </div>
+                            <div>
+                                <label for="setting-address" class="block text-sm font-medium text-gray-700">Adresse (Straße, PLZ Ort)</label>
+                                <input type="text" id="setting-address" class="input-style w-full mt-1">
+                            </div>
+                            <div>
+                                <label for="setting-phone" class="block text-sm font-medium text-gray-700">Telefon</label>
+                                <input type="tel" id="setting-phone" class="input-style w-full mt-1">
+                            </div>
+                            <div>
+                                <label for="setting-email" class="block text-sm font-medium text-gray-700">E-Mail</label>
+                                <input type="email" id="setting-email" class="input-style w-full mt-1">
+                            </div>
+                            <div>
+                                <label for="setting-tax-id" class="block text-sm font-medium text-gray-700">Steuernummer / USt-IdNr.</label>
+                                <input type="text" id="setting-tax-id" class="input-style w-full mt-1">
+                            </div>
+                            
+                            <div class="border-t pt-4">
+                                <h3 class="text-xl font-bold mb-2">Rechnungsstellung</h3>
+                                <label for="setting-invoice-number" class="block text-sm font-medium text-gray-700">Nächste Rechnungsnummer</label>
+                                <input type="text" id="setting-invoice-number" class="input-style w-full mt-1" placeholder="z.B. UM-2025-01">
+                                <p class="text-xs text-gray-500 mt-1">Die nächste Rechnung verwendet diese Nummer und zählt sie hoch (z.B. zu ...-02).</p>
+                            </div>
+                        </div>
+                        
+                        <button onclick="ERPApp.saveCompanySettings()" class="btn-primary w-full bg-gray-600 hover:bg-gray-700 mt-6">
+                            <i data-lucide="save" class="w-5 h-5 mr-2"></i> Einstellungen speichern
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div id="service-modal" class="hidden fixed inset-0 bg-gray-900 bg-opacity-70 flex items-center justify-center z-50 p-4">
+        <div class="bg-gray-100 w-full max-w-2xl mx-auto h-[90vh] max-h-[700px] rounded-xl shadow-2xl flex flex-col">
+            <div class="p-5 border-b border-gray-300 flex justify-between items-center bg-white rounded-t-xl">
+                <h3 class="text-xl font-bold text-gray-800 flex items-center"><i data-lucide="list-plus" class="w-5 h-5 mr-2 text-blue-600"></i>Leistungen auswählen</h3>
+                <button onclick="ERPApp.closeServiceModal()" class="text-gray-500 hover:text-gray-800 text-3xl font-light leading-none">&times;</button>
+            </div>
+            <div id="service-modal-list" class="p-5 overflow-y-auto flex-grow no-scrollbar">
+                </div>
+            <div class="p-4 border-t border-gray-300 bg-white rounded-b-xl">
+                <button onclick="ERPApp.closeServiceModal()" class="btn-primary w-full text-center">
+                    Auswahl abschließen
+                </button>
+            </div>
+        </div>
+    </div>
+    
+    <div id="pdf-modal" class="hidden fixed inset-0 bg-gray-900 bg-opacity-80 flex items-center justify-center z-[60] p-4">
+        <div class="bg-white w-full max-w-4xl mx-auto h-[95vh] rounded-xl shadow-2xl flex flex-col">
+            <div class="p-4 border-b border-gray-200 flex flex-wrap justify-between items-center bg-gray-50 rounded-t-xl gap-2">
+                <h3 id="pdf-modal-title" class="text-lg font-bold text-gray-800 flex items-center">PDF Vorschau</h3>
+                <div class="flex space-x-2">
+                    <button id="pdf-share-btn" class="btn-primary bg-blue-600 hover:bg-blue-700 p-2 flex items-center text-sm">
+                        <i data-lucide="share-2" class="w-4 h-4 mr-2"></i> Teilen
+                    </button>
+                    <button id="pdf-download-btn" class="btn-primary bg-green-600 hover:bg-green-700 p-2 flex items-center text-sm">
+                        <i data-lucide="download" class="w-4 h-4 mr-2"></i> Download
+                    </button>
+                    <button onclick="ERPApp.showNotification('E-Mail (simuliert) gesendet.', 'info')" class="btn-primary bg-purple-600 hover:bg-purple-700 p-2 flex items-center text-sm">
+                        <i data-lucide="mail" class="w-4 h-4 mr-2"></i> Senden (Sim.)
+                    </button>
+                    <button onclick="ERPApp.closePDFModal()" class="text-gray-500 hover:text-gray-800 text-2xl font-light p-1">
+                        <i data-lucide="x" class="w-6 h-6"></i>
+                    </button>
+                </div>
+            </div>
+            <div class="flex-grow p-2 bg-gray-200">
+                <iframe id="pdf-iframe" class="w-full h-full border-0 rounded-b-xl" title="PDF Vorschau" src="about:blank"></iframe>
+            </div>
+        </div>
+    </div>
+    
+    <div id="payment-modal" class="hidden fixed inset-0 bg-gray-900 bg-opacity-70 flex items-center justify-center z-50 p-4">
+        <div class="bg-white w-full max-w-md mx-auto rounded-xl shadow-2xl flex flex-col">
+            <div class="p-5 border-b border-gray-200 flex justify-between items-center">
+                <h3 id="modal-title" class="text-xl font-bold text-gray-800"></h3>
+                <button onclick="ERPApp.closeWorkerPaymentModal()" class="text-gray-500 hover:text-gray-800 text-3xl font-light leading-none">&times;</button>
+            </div>
+            <div class="p-6 space-y-4">
+                <input type="hidden" id="modal-worker-id">
+                <div>
+                    <label for="modal-payment-amount" class="block text-sm font-medium text-gray-700 mb-1">Betrag (€)</label>
+                    <input type="number" id="modal-payment-amount" class="input-style w-full" placeholder="0.00" step="0.01">
+                </div>
+                <div>
+                    <label for="modal-payment-type" class="block text-sm font-medium text-gray-700 mb-1">Zahlungsart</label>
+                    <select id="modal-payment-type" class="input-style w-full">
+                        <option value="Lohnzahlung">Lohnzahlung</option>
+                        <option value="Vorschuss">Vorschuss</option>
+                    </select>
+                </div>
+            </div>
+            <div class="p-4 border-t border-gray-200 bg-gray-50 rounded-b-xl">
+                <button onclick="ERPApp.saveWorkerPaymentFromModal()" class="btn-primary w-full text-center bg-orange-500 hover:bg-orange-600">
+                    Zahlung speichern
+                </button>
+            </div>
+        </div>
+    </div>
+    
+    <div id="client-edit-modal" class="hidden fixed inset-0 bg-gray-900 bg-opacity-70 flex items-center justify-center z-50 p-4">
+        <div class="bg-white w-full max-w-md mx-auto rounded-xl shadow-2xl flex flex-col">
+            <div class="p-5 border-b border-gray-200 flex justify-between items-center">
+                <h3 class="text-xl font-bold text-gray-800">Kundendaten bearbeiten</h3>
+                <button onclick="ERPApp.closeClientEditModal()" class="text-gray-500 hover:text-gray-800 text-3xl font-light leading-none">&times;</button>
+            </div>
+            <div class="p-6 space-y-4">
+                <input type="hidden" id="client-edit-id">
+                <div>
+                    <label for="client-edit-name" class="block text-sm font-medium text-gray-700 mb-1">Kundenname</label>
+                    <input type="text" id="client-edit-name" class="input-style w-full" required>
+                </div>
+                <div>
+                    <label for="client-edit-address" class="block text-sm font-medium text-gray-700 mb-1">Kundenadresse</label>
+                    <input type="text" id="client-edit-address" class="input-style w-full" required>
+                </div>
+                <div>
+                    <label for="client-edit-number" class="block text-sm font-medium text-gray-700 mb-1">Kundennummer</label>
+                    <input type="text" id="client-edit-number" class="input-style w-full">
+                </div>
+                <div>
+                    <label for="client-edit-phone" class="block text-sm font-medium text-gray-700 mb-1">Telefonnummer</label>
+                    <input type="tel" id="client-edit-phone" class="input-style w-full">
+                </div>
+                <div>
+                    <label for="client-edit-email" class="block text-sm font-medium text-gray-700 mb-1">E-Mail</label>
+                    <input type="email" id="client-edit-email" class="input-style w-full">
+                </div>
+            </div>
+            <div class="p-4 border-t border-gray-200 bg-gray-50 rounded-b-xl">
+                <button onclick="ERPApp.saveClientEdits()" class="btn-primary w-full text-center">
+                    Änderungen speichern
+                </button>
+            </div>
+        </div>
+    </div>
+    
+</body>
+</html>
